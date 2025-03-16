@@ -385,7 +385,7 @@ def get_sample_uniform(J,n_walkers,a=1):
     return theta_0
 
 
-def emcee_sampling(n_walkers,ndim,logP,burnin,nsteps,moves,Y,ns,J,m,s,alpha,beta,show=True):
+def emcee_sampling(n_walkers,ndim,logP,burnin,nsteps,moves,Y,ns,J,m,s,alpha,beta,show=True,progress=True,full=True):
         '''
         Run the emcee sampler to obtain samples from the posterior distribution
         of the parameters given the data Y.
@@ -418,22 +418,25 @@ def emcee_sampling(n_walkers,ndim,logP,burnin,nsteps,moves,Y,ns,J,m,s,alpha,beta
 
         args = [Y,ns,J,m,s,alpha,beta]
         # Initial point for the sampler obtained from prior in BHM
-        theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers)
+        if full:
+            theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers)
+        else:
+            theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers)[:,-J:]
 
         # Initialize the Sampler
         sampler = emcee.EnsembleSampler(n_walkers, ndim, 
-                                    logP, 
-                                    args=args,
-                                    moves=moves)
+                                logP, 
+                                args=args,
+                                moves=moves)
         # moves allows to define the type of proposal move for the walkers 
         # and can help improve the convergence and efficiency of the sampler. 
 
         # Run the sampler for the burn-in period and restart it
-        state = sampler.run_mcmc(theta_0, burnin, progress=True)
+        state = sampler.run_mcmc(theta_0, burnin, progress=progress)
         sampler.reset()
 
         # Run the sampler for the production period
-        state = sampler.run_mcmc(state, nsteps, progress=True)
+        state = sampler.run_mcmc(state, nsteps, progress=progress)
 
         # Collect the samples from the chain
         samples = sampler.get_chain(flat=False)
