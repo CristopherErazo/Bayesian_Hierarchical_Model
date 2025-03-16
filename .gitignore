@@ -1,5 +1,16 @@
 # Object file
-*.o
+# *.o
 
 # Ada Library Information
-*.ali
+# *.ali
+
+# Python cache
+__pycache__/
+
+# Data folders
+data/
+venv/
+
+# Particular files
+BayesProblems_2025.pdf
+Hierarchical_Model.ipynb
