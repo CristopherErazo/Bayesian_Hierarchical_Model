@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.integrate import quad
+from scipy import integrate
 from scipy.stats import invgamma , norm , poisson
 from IPython.display import display, Math
 import emcee
@@ -21,7 +21,7 @@ def f(x, x0, w2, alpha, J):
     Outputs:
     - f: float, value of the function at x
     '''
-    return 1 / ((x - x0)**2 + w2)**(alpha+0.5*J) 
+    return 1 / (1 + (x - x0)**2/w2 )**(alpha+0.5*J) 
 
 def integrand(x, x0, w2, alpha, J):
     '''
@@ -42,7 +42,35 @@ def integrand(x, x0, w2, alpha, J):
     fun = f(x, x0, w2, alpha, J)
     return norm.pdf(x) * fun
 
-def F(x0, w2, alpha, J):
+def get_range(x0, w2, alpha, J,n_sig = 3):
+    '''
+    Computes the range of the function integrand(x,*args) centered in the 
+    maximum and with n_sig widths to each side.
+
+    Inputs:
+    - x0: float, center of curve
+    - w2: float, width of the function
+    - alpha: float, hyperparameter of the prior distribution
+    - J: int, number of Hospitals
+
+    Outputs:
+    - xmin: float, lower bound of the integral
+    - xmax: float, upper bound of the integral
+    '''
+    # Compute the range of the function
+    gamma = alpha + 0.5*J
+
+    # Compute center and width of the integrand
+    x_center = x0*(1-w2/(w2+2*gamma))
+    width = np.sqrt(w2*(1+2**(1/gamma)))
+
+    # Compute the range of the function
+    xmin = x_center - n_sig*width
+    xmax = x_center + n_sig*width
+
+    return xmin, xmax
+
+def F(x0, w2, alpha, J , xmin , xmax , method = 'fixed_quad',n=5):
     '''
     Computes the F(lambda) function which is the Gausian integral
     of equation (9) in the pdf.
@@ -52,12 +80,21 @@ def F(x0, w2, alpha, J):
     - w2: float, width of the function
     - alpha: float, hyperparameter of the prior distribution
     - J: int, number of Hospitals
+    - xmin: float, lower bound of the integral
+    - xmax: float, upper bound of the integral
+    - method: string, method to compute the integral {'quad','fixed_quad'}
+    - n: int, number of points to compute the integral for fixed_quad
 
     Outputs:
     - result: float, value of the integral F(lambda)
     - error: float, error of the integral
     '''
-    result, error = quad(integrand, -np.inf, np.inf, args=(x0, w2, alpha, J))
+    if method == 'quad':
+        result, error = integrate.quad(integrand, xmin, xmax, args=(x0, w2, alpha, J))
+    elif method == 'fixed_quad':
+        result, error = integrate.fixed_quad(integrand, xmin, xmax, args=(x0, w2, alpha, J),n=n)
+    else:
+        raise ValueError('Method not implemented, only quad and fixed_quad are available')
     return result , error
 
 
@@ -207,7 +244,7 @@ def log_marginal_posterior_pooling(lambdas, Y, ns, J, m, s, alpha, beta):
         x0 = (mu_log_lambdas - m)/s
         w2 = 2*(beta+0.5*J*(sigma2_log_lambdas))/(J*s**2)
         logF = np.log(F(x0, w2, alpha, J)[0])
-        return log_lik -J*mu_log_lambdas + logF
+        return log_lik -J*mu_log_lambdas + logF - (alpha+0.5*J)*np.log(w2)
     else:
         return -np.inf
     
@@ -250,7 +287,7 @@ def log_marginal_posterior_no_pooling(lambdas, Y, ns, J, m, s, alpha, beta):
             x0 = (log_lambdas[j] - m)/s
             logF_tilde += np.log(F(x0, w2, alpha, 1)[0])
 
-        return log_lik -J*mu_log_lambdas + logF_tilde
+        return log_lik -J*mu_log_lambdas + logF_tilde 
     else:
         return -np.inf
 
@@ -331,7 +368,7 @@ def display_configuration(ns, mu_0, sigma2_0, lambdas , J,alpha,beta,m,s):
     print('\nHospital Level Parameters:')
     display(Math(r'(\lambda_j)_{j\leq J} = (' + ', \\;'.join(['{:.2f}'.format(r) for r in lambdas]) + ')'))
 
-def get_sample_prior_model(m,s,alpha,beta,J,n_walkers):
+def get_sample_prior_model(m,s,alpha,beta,J,n_walkers,full=True):
     '''
     Sample from the prior distribution of the parameters (mu_0,sigma2_0,lambdas)
     following the BHM to start the Monte Carlo algorithm. 
@@ -356,7 +393,10 @@ def get_sample_prior_model(m,s,alpha,beta,J,n_walkers):
     lambdas = np.array( [np.exp(norm.rvs(loc=mu_0[k],scale=np.sqrt(sigma2_0[k]), size=J)) for k in range(n_walkers)])
     # Group the samples in a single array
     theta_0 = np.column_stack((mu_0,sigma2_0,lambdas))
-    return theta_0
+    if full:
+        return theta_0
+    else:
+        return lambdas
 
 
 
@@ -418,10 +458,9 @@ def emcee_sampling(n_walkers,ndim,logP,burnin,nsteps,moves,Y,ns,J,m,s,alpha,beta
 
         args = [Y,ns,J,m,s,alpha,beta]
         # Initial point for the sampler obtained from prior in BHM
-        if full:
-            theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers)
-        else:
-            theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers)[:,-J:]
+
+        theta_0 = get_sample_prior_model(m,s,alpha,beta,J,n_walkers,full=full)
+
 
         # Initialize the Sampler
         sampler = emcee.EnsembleSampler(n_walkers, ndim, 
